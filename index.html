@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Web Watch 網站監看中心</title><link rel="stylesheet" href="style.css"></head>
+<body><main><header><div><h1>Web Watch</h1><p>網站更新監看中心</p></div><span class="badge">GitHub Actions</span></header>
+<section class="card"><h2>新增監看網站</h2><p class="hint">第一版以 <code>watchlist.json</code> 管理監看項目；下方工具可幫你產生設定。</p>
+<label>名稱<input id="name" placeholder="例如：高雄市政府公告"></label><label>網址<input id="url" type="url" placeholder="https://example.com/news"></label><label>關鍵字（選填）<input id="keyword" placeholder="例如：都市計畫"></label><button id="make">產生設定</button><pre id="out">填寫後按「產生設定」</pre></section>
+<section class="card"><h2>目前監看清單</h2><div id="list">讀取中…</div></section>
+<section class="card"><h2>LINE 通知</h2><p>監看程式發現頁面內容變更後，會使用 GitHub Secret 中的 LINE Channel Access Token 發送通知。Token 不會放在公開程式碼中。</p></section>
+<footer>Web Watch · 自動監看網站更新</footer></main><script src="app.js"></script></body></html>
