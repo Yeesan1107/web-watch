@@ -1,0 +1,3 @@
+const $=s=>document.querySelector(s);
+$("#make").onclick=()=>{const x={name:$("#name").value.trim(),url:$("#url").value.trim(),keyword:$("#keyword").value.trim(),enabled:true};$("#out").textContent=JSON.stringify(x,null,2)};
+fetch("watchlist.json").then(r=>r.json()).then(xs=>{$("#list").innerHTML=xs.length?xs.map(x=>`<div class="item"><strong>${x.enabled?"🟢":"⚪"} ${x.name}</strong><br><a href="${x.url}" target="_blank" rel="noopener">${x.url}</a>${x.keyword?`<br><small>關鍵字：${x.keyword}</small>`:""}</div>`).join(""):"尚未新增監看網站。"}).catch(()=>$("#list").textContent="無法讀取監看清單");
