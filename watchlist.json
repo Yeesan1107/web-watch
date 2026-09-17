@@ -1,1 +1,8 @@
-[]
+[
+  {
+    "name": "內政部國土署－最新消息",
+    "url": "https://www.nlma.gov.tw/ch/titlelist/news",
+    "keyword": "",
+    "enabled": true
+  }
+]
