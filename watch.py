@@ -1,6 +1,7 @@
-import os, json, hashlib, re
+import os, json, hashlib, re, html as html_lib
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urljoin, quote_plus
+import xml.etree.ElementTree as ET
 import requests
 from bs4 import BeautifulSoup
 
@@ -13,30 +14,27 @@ target = os.getenv("LINE_TARGET_ID", "")
 line_test = os.getenv("LINE_TEST", "").lower() == "true"
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/152.0.0.0 Safari/537.36",
     "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
 }
 
 
 def line(text):
     if not token or not target:
-        print("LINE secrets not configured; notification skipped.")
-        return
+        print("LINE secrets not configured; notification skipped."); return
     r = requests.post("https://api.line.me/v2/bot/message/push",
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         json={"to": target, "messages": [{"type": "text", "text": text[:5000]}]}, timeout=20)
     r.raise_for_status()
 
 
-def normalize(text):
-    return re.sub(r"\s+", " ", text or "").strip()
+def normalize(text): return re.sub(r"\s+", " ", html_lib.unescape(text or "")).strip()
 
 
 def dedupe(rows):
     seen, out = set(), []
     for row in rows:
-        key = (row["title"], row["url"])
+        key = row["title"]
         if key not in seen:
             seen.add(key); out.append(row)
     return out
@@ -45,100 +43,99 @@ def dedupe(rows):
 def all_links(soup, url, min_len=8):
     rows = []
     for a in soup.find_all("a", href=True):
-        title = normalize(a.get_text(" ", strip=True))
-        href = urljoin(url, a.get("href", ""))
-        if len(title) < min_len or href.startswith(("javascript:", "#")) or href == url:
-            continue
-        rows.append({"title": title, "url": href})
-    return dedupe(rows)
-
-
-def direct_fetch(url):
-    s = requests.Session(); s.headers.update(HEADERS)
-    if "leju.com.tw" in url:
-        try: s.get("https://www.leju.com.tw/", timeout=15)
-        except Exception: pass
-    r = s.get(url, timeout=30, allow_redirects=True)
-    r.raise_for_status()
-    return r.text
-
-
-def reader_fetch(url):
-    # Public reader fallback for sites that block GitHub-hosted IPs.
-    r = requests.get("https://r.jina.ai/" + url, headers={"Accept": "text/plain", "User-Agent": HEADERS["User-Agent"]}, timeout=45)
-    r.raise_for_status()
-    return r.text
-
-
-def markdown_links(text, base_url):
-    rows = []
-    for title, href in re.findall(r"\[([^\]\n]{4,300})\]\((https?://[^)\s]+)\)", text):
-        title = normalize(re.sub(r"!\[[^\]]*\]", "", title))
-        if len(title) >= 8:
+        title = normalize(a.get_text(" ", strip=True)); href = urljoin(url, a["href"])
+        if len(title) >= min_len and not href.startswith(("javascript:", "#")) and href != url:
             rows.append({"title": title, "url": href})
     return dedupe(rows)
 
 
-def extract_html(url, html):
-    soup = BeautifulSoup(html, "html.parser")
-    if "nlma.gov.tw/ch/titlelist/news" in url:
-        rows = []
-        for a in soup.find_all("a", href=True):
-            title = normalize(a.get_text(" ", strip=True)); href = urljoin(url, a["href"])
-            if len(title) >= 8 and "nlma.gov.tw" in href and href != url:
-                rows.append({"title": title, "url": href})
-        return dedupe(rows)[:80]
+def direct_fetch(url):
+    r = requests.get(url, headers=HEADERS, timeout=30, allow_redirects=True)
+    r.raise_for_status(); return r.text
+
+
+def rss_rows(feed_url, title_filter=None):
+    r = requests.get(feed_url, headers={**HEADERS, "Accept": "application/rss+xml, application/xml, text/xml"}, timeout=30)
+    r.raise_for_status()
+    root = ET.fromstring(r.content)
+    rows = []
+    for item in root.findall(".//item"):
+        title = normalize(item.findtext("title")); link = normalize(item.findtext("link"))
+        if len(title) < 6 or not link: continue
+        if title_filter and title_filter not in title: continue
+        rows.append({"title": title, "url": link})
+    return dedupe(rows)
+
+
+def google_news_rows(query, title_filter=None):
+    feed = "https://news.google.com/rss/search?q=" + quote_plus(query) + "&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
+    return rss_rows(feed, title_filter=title_filter)[:50]
+
+
+def extract_html(url, text):
+    soup = BeautifulSoup(text, "html.parser")
+    rows = all_links(soup, url)
+
+    if "nlma.gov.tw/ch/titlelist/latestnews" in url:
+        # The current NLMA latest-news page contains content links under /ch/titlelist/latestnews and detail pages.
+        bad = ("網站導覽", "隱私權", "資訊安全", "政府網站資料開放", "聯絡資訊")
+        filtered = [x for x in rows if "nlma.gov.tw" in x["url"] and len(x["title"]) >= 10 and not any(b in x["title"] for b in bad)]
+        return filtered[:80]
 
     if "eyesonplace.net" in url:
-        # WordPress article permalinks contain YYYY/MM/DD/article-id.
-        rows = [x for x in all_links(soup, url) if re.search(r"eyesonplace\.net/20\d\d/\d\d/\d\d/\d+", x["url"])]
-        return rows[:30]
+        # Homepage has a 最新文章 section; WordPress article links are kept while navigation is excluded.
+        marker = soup.find(lambda t: t.name in ("h1","h2","h3","h4","h5","h6") and normalize(t.get_text()) == "最新文章")
+        if marker:
+            found = []
+            for node in marker.find_all_next():
+                if node is not marker and node.name in ("h1","h2","h3","h4","h5","h6") and normalize(node.get_text()) in ("專題報導", "關於眼底城事"):
+                    break
+                if node.name == "a" and node.get("href"):
+                    title = normalize(node.get_text(" ", strip=True)); href = urljoin(url, node["href"])
+                    if len(title) >= 8 and "eyesonplace.net" in href:
+                        found.append({"title": title, "url": href})
+            if found: return dedupe(found)[:30]
+        return [x for x in rows if "eyesonplace.net" in x["url"] and len(x["title"]) >= 10][:30]
 
-    rows = all_links(soup, url)
     if "leju.com.tw/page_blog" in url:
-        return dedupe([x for x in rows if "/page_blog/view/" in x["url"] and "看屋筆記" in x["title"]])[:50]
+        return [x for x in rows if "/page_blog/view/" in x["url"] and "看屋筆記" in x["title"]][:50]
     if "estate.ltn.com.tw/news" in url:
         bad = ("熱門新聞", "即時新聞", "地產天下", "自由時報", "關於我們", "服務條款")
         return [x for x in rows if len(x["title"]) >= 12 and not any(b in x["title"] for b in bad)][:60]
-    if "urban-web.kcg.gov.tw" in url:
-        return [x for x in rows if len(x["title"]) >= 10][:80]
-    if "tiup.org.tw" in url or "rer.nccu.edu.tw" in url:
-        return [x for x in rows if len(x["title"]) >= 10][:60]
-    return rows[:50]
-
-
-def extract_reader(url, text):
-    rows = markdown_links(text, url)
-    if "nlma.gov.tw/ch/titlelist/news" in url:
-        # Reader output reliably contains the Latest News section. Prefer NLMA content links.
-        return [x for x in rows if "nlma.gov.tw" in x["url"] and x["url"] != url][:80]
-    if "eyesonplace.net" in url:
-        return [x for x in rows if re.search(r"eyesonplace\.net/20\d\d/\d\d/\d\d/\d+", x["url"])][:30]
-    if "leju.com.tw/page_blog" in url:
-        return [x for x in rows if "/page_blog/view/" in x["url"] and "看屋筆記" in x["title"]][:50]
+    if "urban-web.kcg.gov.tw" in url: return [x for x in rows if len(x["title"]) >= 10][:80]
+    if "tiup.org.tw" in url or "rer.nccu.edu.tw" in url: return [x for x in rows if len(x["title"]) >= 10][:60]
     return rows[:50]
 
 
 def fetch_rows(url):
-    direct_error = None
+    errors = []
     try:
-        html = direct_fetch(url)
-        rows = extract_html(url, html)
-        if rows:
-            return rows, "direct"
-        direct_error = "no titles found"
-    except Exception as e:
-        direct_error = str(e)
+        rows = extract_html(url, direct_fetch(url))
+        if rows: return rows, "direct"
+        errors.append("direct: no titles")
+    except Exception as e: errors.append("direct: " + str(e))
 
-    # Only use the reader fallback when direct access fails or yields no titles.
-    try:
-        text = reader_fetch(url)
-        rows = extract_reader(url, text)
-        if rows:
-            return rows, "reader fallback"
-        raise RuntimeError("fallback returned no titles")
-    except Exception as e:
-        raise RuntimeError(f"direct: {direct_error}; fallback: {e}")
+    # Eyes on Place is WordPress: try its native RSS feed before search fallback.
+    if "eyesonplace.net" in url:
+        try:
+            rows = rss_rows("https://eyesonplace.net/feed/")
+            if rows: return rows[:30], "RSS"
+            errors.append("RSS: no titles")
+        except Exception as e: errors.append("RSS: " + str(e))
+        try:
+            rows = google_news_rows("site:eyesonplace.net")
+            if rows: return rows, "Google News RSS"
+        except Exception as e: errors.append("Google: " + str(e))
+
+    # Leju blocks GitHub runner IPs. Use a public Google News RSS search as the independent fallback.
+    if "leju.com.tw/page_blog" in url:
+        try:
+            rows = google_news_rows('site:leju.com.tw/page_blog/view "看屋筆記"', title_filter="看屋筆記")
+            if rows: return rows, "Google News RSS"
+            errors.append("Google: no 看屋筆記 titles")
+        except Exception as e: errors.append("Google: " + str(e))
+
+    raise RuntimeError("; ".join(errors))
 
 
 def check_source(item, notify=True):
@@ -146,7 +143,7 @@ def check_source(item, notify=True):
     try:
         rows, method = fetch_rows(url)
         current_titles = [x["title"] for x in rows]
-        current_hash = hashlib.sha256("\n".join(current_titles).encode("utf-8")).hexdigest()
+        current_hash = hashlib.sha256("\n".join(current_titles).encode()).hexdigest()
         old = state.get(url)
         if not isinstance(old, dict):
             print(f"{name}: baseline created ({len(rows)} titles, {method})")
@@ -164,8 +161,7 @@ def check_source(item, notify=True):
         if changed_here: state[url] = new_state
         return True, len(rows), changed_here, method
     except Exception as e:
-        print(f"{name}: ERROR {e}")
-        return False, 0, False, str(e)
+        print(f"{name}: ERROR {e}"); return False, 0, False, str(e)
 
 
 changed = False; results = []
@@ -178,11 +174,8 @@ for item in items:
 if line_test:
     lines = ["🧪 Web Watch 測試完成", "LINE 群組通知已正常連線", "", "實際抓取結果："]
     for name, ok, count, detail in results:
-        if ok:
-            suffix = "／備援" if detail == "reader fallback" else ""
-            lines.append(f"✓ {name}（{count} 則{suffix}）")
-        else:
-            lines.append(f"✗ {name}（{(detail or '抓取失敗')[:38]}）")
+        if ok: lines.append(f"✓ {name}（{count} 則｜{detail}）")
+        else: lines.append(f"✗ {name}（{(detail or '抓取失敗')[:55]}）")
     line("\n".join(lines)); print("LINE test/status notification sent")
 
 if changed:
