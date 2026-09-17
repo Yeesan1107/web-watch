@@ -10,5 +10,35 @@
     "url": "https://eyesonplace.net/",
     "keyword": "",
     "enabled": true
+  },
+  {
+    "name": "高雄市都市發展局－公告資訊",
+    "url": "https://urban-web.kcg.gov.tw/KDA/web_page/KDAN020100.jsp?PKPAGE=KDA050000",
+    "keyword": "",
+    "enabled": true
+  },
+  {
+    "name": "樂居－看屋筆記",
+    "url": "https://www.leju.com.tw/page_blog?category=%E7%9C%8B%E5%B1%8B%E7%AD%86%E8%A8%98",
+    "keyword": "",
+    "enabled": true
+  },
+  {
+    "name": "自由時報地產天下－最新新聞",
+    "url": "https://estate.ltn.com.tw/news",
+    "keyword": "",
+    "enabled": true
+  },
+  {
+    "name": "台灣都市計劃學會",
+    "url": "https://tiup.org.tw/",
+    "keyword": "",
+    "enabled": true
+  },
+  {
+    "name": "政大房地產研究中心",
+    "url": "https://rer.nccu.edu.tw/",
+    "keyword": "",
+    "enabled": true
   }
 ]
