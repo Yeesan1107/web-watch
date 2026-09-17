@@ -11,6 +11,7 @@ items = json.loads((ROOT / "watchlist.json").read_text(encoding="utf-8"))
 state = json.loads(STATE.read_text(encoding="utf-8")) if STATE.exists() else {}
 token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
 target = os.getenv("LINE_TARGET_ID", "")
+line_test = os.getenv("LINE_TEST", "").lower() == "true"
 
 HEADERS = {"User-Agent": "Mozilla/5.0 Web-Watch/2.0"}
 
@@ -32,10 +33,20 @@ def normalize(text):
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+def dedupe(rows):
+    seen = set()
+    out = []
+    for row in rows:
+        key = (row["title"], row["url"])
+        if key not in seen:
+            seen.add(key)
+            out.append(row)
+    return out
+
+
 def extract_titles(url, html):
     soup = BeautifulSoup(html, "html.parser")
 
-    # 內政部國土署：只抓「最新消息」清單中的公告標題。
     if "nlma.gov.tw/ch/titlelist/news" in url:
         h = soup.find(lambda tag: tag.name in ("h1", "h2", "h3", "h4", "h5") and normalize(tag.get_text()) == "最新消息")
         root = h.parent if h else soup
@@ -48,11 +59,9 @@ def extract_titles(url, html):
             if href == url or href.startswith("javascript:") or href.startswith("#"):
                 continue
             links.append({"title": title, "url": href})
-        # 最新消息頁面的公告標題通常較長；排除導覽選單等短文字。
         links = [x for x in links if len(x["title"]) >= 8]
         return dedupe(links)[:80]
 
-    # 眼底城事：只抓「最新文章」區塊，遇到下一個區塊標題即停止。
     if "eyesonplace.net" in url:
         marker = soup.find(lambda tag: tag.name in ("h1", "h2", "h3", "h4", "h5", "h6") and normalize(tag.get_text()) == "最新文章")
         links = []
@@ -71,16 +80,13 @@ def extract_titles(url, html):
     return []
 
 
-def dedupe(rows):
-    seen = set()
-    out = []
-    for row in rows:
-        key = (row["title"], row["url"])
-        if key not in seen:
-            seen.add(key)
-            out.append(row)
-    return out
-
+if line_test:
+    active_names = [x.get("name", x.get("url", "網站")) for x in items if x.get("enabled", True)]
+    msg = "🧪 Web Watch 測試成功\nLINE 群組通知已正常連線"
+    if active_names:
+        msg += "\n\n目前監看：\n" + "\n".join(f"✓ {name}" for name in active_names)
+    line(msg)
+    print("LINE test notification sent")
 
 changed = False
 for item in items:
@@ -101,7 +107,6 @@ for item in items:
         current_hash = hashlib.sha256("\n".join(current_titles).encode("utf-8")).hexdigest()
         old = state.get(url)
 
-        # 相容舊版 state（舊版只存整頁 hash）。第一次升級不推播，避免一次洗版。
         if not isinstance(old, dict):
             print(f"{name}: title-list baseline created")
         else:
