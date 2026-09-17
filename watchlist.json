@@ -4,5 +4,11 @@
     "url": "https://www.nlma.gov.tw/ch/titlelist/news",
     "keyword": "",
     "enabled": true
+  },
+  {
+    "name": "眼底城事－最新文章",
+    "url": "https://eyesonplace.net/",
+    "keyword": "",
+    "enabled": true
   }
 ]
