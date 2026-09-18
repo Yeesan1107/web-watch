@@ -13,7 +13,9 @@ groups_url=os.getenv("LINE_GROUPS_URL","")
 groups_key=os.getenv("LINE_GROUPS_API_KEY","")
 HEAD={"User-Agent":"Mozilla/5.0 Chrome/152 Safari/537.36","Accept-Language":"zh-TW,zh;q=0.9"}
 KEYWORDS=["都市計畫","都市規劃","都市更新","都更","危老","土地開發","不動產開發","建設開發","開發評估"]
-EXCLUDE=["房仲","仲介業務","電話開發","陌生開發","純業務"]\n# Only notify jobs whose posting explicitly requires 4+ years of experience.\nEXP_PATTERNS=[r"([4-9]|[1-9]\\d)\\s*年以上", r"工作經歷.{0,12}([4-9]|[1-9]\\d)\\s*年", r"經驗.{0,12}([4-9]|[1-9]\\d)\\s*年"]
+EXCLUDE=["房仲","仲介業務","電話開發","陌生開發","純業務"]
+# Only notify jobs whose posting explicitly requires 4+ years of experience.
+EXP_PATTERNS=[r"([4-9]|[1-9]\d)\s*年以上", r"工作經歷.{0,12}([4-9]|[1-9]\d)\s*年", r"經驗.{0,12}([4-9]|[1-9]\d)\s*年"]
 
 def norm(s): return re.sub(r"\s+"," ",html_lib.unescape(s or "")).strip()
 def targets():
@@ -32,6 +34,16 @@ def push(text):
         except Exception as e: print("LINE:",e)
 def relevant(text):
     return any(k in text for k in KEYWORDS) and not any(x in text for x in EXCLUDE)
+def exp4plus(text):
+    return any(re.search(p, text) for p in EXP_PATTERNS)
+def job_page_ok(url):
+    try:
+        r=requests.get(url,headers=HEAD,timeout=25); r.raise_for_status()
+        text=norm(BeautifulSoup(r.text,"html.parser").get_text(" ",strip=True))
+        return exp4plus(text)
+    except Exception as e:
+        print("experience check:",e)
+        return False
 def google_news(query):
     import xml.etree.ElementTree as ET
     u="https://news.google.com/rss/search?q="+quote_plus(query)+"&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
@@ -80,7 +92,9 @@ for source,fn in [("104",fetch104),("1111",fetch1111)]:
     if not got:
         try: got=google_news(f"site:{'104.com.tw' if source=='104' else '1111.com.tw'} (都市更新 OR 土地開發 OR 都市計畫 OR 不動產開發)")
         except Exception as e: print(source,"fallback:",e)
-    for x in got:\n        x["source"]=source\n        if job_page_ok(x["url"]): rows.append(x)
+    for x in got:
+        x["source"]=source
+        if job_page_ok(x["url"]): rows.append(x)
 seen=set(); unique=[]
 for x in rows:
     key=x["title"]
