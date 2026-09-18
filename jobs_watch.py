@@ -99,7 +99,8 @@ seen=set(); unique=[]
 for x in rows:
     key=x["title"]
     if key not in seen: seen.add(key); unique.append(x)
-old=set(state.get("titles",[]))
+# Permanent history prevents an old/relisted/reordered job from being sent again.
+old=set(state.get("seen_titles", state.get("titles",[])))
 new=[x for x in unique if x["title"] not in old]
 if not state:
     print(f"Jobs baseline created: {len(unique)}")
@@ -110,4 +111,5 @@ elif new:
         push(msg)
     print("New jobs:",len(new))
 else: print("No new jobs")
-STATE.write_text(json.dumps({"titles":[x["title"] for x in unique]},ensure_ascii=False,indent=2),encoding="utf-8")
+all_seen=list(dict.fromkeys(list(old)+[x["title"] for x in unique]))
+STATE.write_text(json.dumps({"titles":[x["title"] for x in unique],"seen_titles":all_seen},ensure_ascii=False,indent=2),encoding="utf-8")
