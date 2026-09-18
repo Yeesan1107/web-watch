@@ -1,11 +1,5 @@
 [
   {
-    "name": "內政部國土署－最新消息",
-    "url": "https://www.nlma.gov.tw/ch/titlelist/latestnews",
-    "keyword": "",
-    "enabled": true
-  },
-  {
     "name": "眼底城事－最新文章",
     "url": "https://eyesonplace.net/",
     "keyword": "",
