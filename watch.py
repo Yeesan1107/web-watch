@@ -192,15 +192,19 @@ def check_source(item, notify=True):
         if not isinstance(old, dict):
             print(f"{name}: baseline created ({len(rows)} titles, {method})")
         else:
-            old_titles = old.get("titles", [])
-            new_rows = [x for x in rows if x["title"] not in old_titles]
+            # Permanent de-duplication: once a title has ever been seen, never notify it again.
+            # Backward compatible: existing titles become the initial seen history.
+            seen_titles = set(old.get("seen_titles", old.get("titles", [])))
+            new_rows = [x for x in rows if x["title"] not in seen_titles]
             if new_rows and notify:
                 shown = new_rows[:10]
                 msg = f"🔔 {name}\n新增 {len(new_rows)} 則：\n\n" + "\n\n".join(f"• {x['title']}\n{x['url']}" for x in shown)
                 if len(new_rows) > 10: msg += f"\n\n另有 {len(new_rows)-10} 則新內容"
                 line(msg)
             print(f"{name}: {len(new_rows)} new title(s), {method}" if new_rows else f"{name}: no new titles, {method}")
-        new_state = {"hash": current_hash, "titles": current_titles}
+        previous_seen = set(old.get("seen_titles", old.get("titles", []))) if isinstance(old, dict) else set()
+        all_seen = list(dict.fromkeys(list(previous_seen) + current_titles))
+        new_state = {"hash": current_hash, "titles": current_titles, "seen_titles": all_seen}
         changed_here = old != new_state
         if changed_here: state[url] = new_state
         return True, len(rows), changed_here, method
