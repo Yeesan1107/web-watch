@@ -77,10 +77,23 @@ def extract_html(url, text):
     rows = all_links(soup, url)
 
     if "nlma.gov.tw/ch/titlelist/latestnews" in url:
-        # The current NLMA latest-news page contains content links under /ch/titlelist/latestnews and detail pages.
-        bad = ("網站導覽", "隱私權", "資訊安全", "政府網站資料開放", "聯絡資訊")
-        filtered = [x for x in rows if "nlma.gov.tw" in x["url"] and len(x["title"]) >= 10 and not any(b in x["title"] for b in bad)]
-        return filtered[:80]
+        # NLMA uses relative/detail links that do not always contain the hostname.
+        # The page itself is server-rendered, so keep long links after removing navigation/footer items.
+        bad = ("網站導覽", "隱私權", "資訊安全", "政府網站資料開放", "聯絡資訊",
+               "回首頁", "首頁", "上一頁", "下一頁", "最新消息")
+        filtered = []
+        for x in rows:
+            title = x["title"]
+            href = x["url"]
+            if len(title) < 12 or any(b in title for b in bad):
+                continue
+            if "nlma.gov.tw" not in href:
+                continue
+            # Exclude category/list/navigation links; retain announcement/detail-like links.
+            if "/ch/titlelist/" in href and href.rstrip("/") == url.rstrip("/"):
+                continue
+            filtered.append(x)
+        return dedupe(filtered)[:80]
 
     if "eyesonplace.net" in url:
         # Homepage has a 最新文章 section; WordPress article links are kept while navigation is excluded.
@@ -114,6 +127,14 @@ def fetch_rows(url):
         if rows: return rows, "direct"
         errors.append("direct: no titles")
     except Exception as e: errors.append("direct: " + str(e))
+
+    # NLMA fallback: Google News is only used if the official page unexpectedly changes layout.
+    if "nlma.gov.tw/ch/titlelist/latestnews" in url:
+        try:
+            rows = google_news_rows("site:nlma.gov.tw 內政部國土署")
+            if rows: return rows, "Google News RSS"
+            errors.append("Google: no NLMA titles")
+        except Exception as e: errors.append("Google: " + str(e))
 
     # Eyes on Place is WordPress: try its native RSS feed before search fallback.
     if "eyesonplace.net" in url:
