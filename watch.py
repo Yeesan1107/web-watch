@@ -11,6 +11,8 @@ items = json.loads((ROOT / "watchlist.json").read_text(encoding="utf-8"))
 state = json.loads(STATE.read_text(encoding="utf-8")) if STATE.exists() else {}
 token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
 target = os.getenv("LINE_TARGET_ID", "")
+groups_url = os.getenv("LINE_GROUPS_URL", "")
+groups_api_key = os.getenv("LINE_GROUPS_API_KEY", "")
 line_test = os.getenv("LINE_TEST", "").lower() == "true"
 
 HEADERS = {
@@ -19,13 +21,34 @@ HEADERS = {
 }
 
 
+def get_targets():
+    targets = []
+    if groups_url and groups_api_key:
+        try:
+            r = requests.get(groups_url, headers={"Authorization": f"Bearer {groups_api_key}"}, timeout=20)
+            r.raise_for_status()
+            targets.extend(r.json().get("groups", []))
+        except Exception as e:
+            print(f"Group registry unavailable: {e}; using LINE_TARGET_ID fallback")
+    if target:
+        targets.append(target)
+    return list(dict.fromkeys(x for x in targets if isinstance(x, str) and x))
+
+
 def line(text):
-    if not token or not target:
-        print("LINE secrets not configured; notification skipped."); return
-    r = requests.post("https://api.line.me/v2/bot/message/push",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json={"to": target, "messages": [{"type": "text", "text": text[:5000]}]}, timeout=20)
-    r.raise_for_status()
+    if not token:
+        print("LINE token not configured; notification skipped."); return
+    targets = get_targets()
+    if not targets:
+        print("No LINE target groups configured; notification skipped."); return
+    for group_id in targets:
+        try:
+            r = requests.post("https://api.line.me/v2/bot/message/push",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json={"to": group_id, "messages": [{"type": "text", "text": text[:5000]}]}, timeout=20)
+            r.raise_for_status()
+        except Exception as e:
+            print(f"LINE push failed for {group_id[:8]}...: {e}")
 
 
 def normalize(text): return re.sub(r"\s+", " ", html_lib.unescape(text or "")).strip()
