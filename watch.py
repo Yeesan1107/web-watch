@@ -27,7 +27,9 @@ def get_targets():
         try:
             r = requests.get(groups_url, headers={"Authorization": f"Bearer {groups_api_key}"}, timeout=20)
             r.raise_for_status()
-            targets.extend(r.json().get("groups", []))
+            data = r.json()
+            targets.extend(data.get("groups", []))
+            targets.extend(data.get("users", []))
         except Exception as e:
             print(f"Group registry unavailable: {e}; using LINE_TARGET_ID fallback")
     if target:
